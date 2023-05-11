@@ -1,21 +1,18 @@
 # AR
 
-**TODO: Add description**
+Finds discrepancies in Amazon billing for orders placed in Amazon marketplace.
 
-## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `amazon_refunds` to your list of dependencies in `mix.exs`:
+## To run
 
-```elixir
-def deps do
-  [
-    {:amazon_refunds, "~> 0.1.0"}
-  ]
-end
+You can clone the repository and run
+
+```zsh
+AR_USERNAME='email' AR_PASSWORD='password' mix run -e "AR.get_order_summary()"
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/amazon_refunds>.
+and it outputs the orders in which the aggregated totals of the two used methods did not match up.
 
+The first method uses the transaction history as listed on Amazon.
+
+The second method uses the 'Grand Total' and 'Refund' fields on the Order Detail page. 

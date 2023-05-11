@@ -47,9 +47,11 @@ defmodule AR do
       alternate_totals = Map.get(alternate_order_summary, order_number)
       alternate_totals[:credits] != totals[:credits] || alternate_totals[:debits] != totals[:debits]
     end)
+    |> IO.inspect(label: "non-matching orders(transaction aggregate)")
 
     non_matching_order_numbers = Enum.map(non_matching_orders, fn {order_number, _totals} -> order_number end) |> MapSet.new()
     non_matching_orders_two = Enum.filter(alternate_order_summary, fn {order_number, _totals} -> MapSet.member?(non_matching_order_numbers, order_number) end)
+    |> IO.inspect(label: "non-matching orders(order details)")
 
 
     {non_matching_orders, non_matching_orders_two}
