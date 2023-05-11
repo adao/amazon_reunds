@@ -16,10 +16,14 @@ defmodule AR do
   import Wallaby.Browser
   alias Wallaby.{Browser, Query, Element}
 
-  def check_env() do
-    {Application.get_env(:amazon_refunds, :username), Application.get_env(:amazon_refunds, :password)}
-  end
+  @doc """
+  This function emulates a browser session, signs into a user's Amazon account, downloads their transaction
+  history through a particular date, then cross checks the transaction aggregate against the aggregate displayed
+  for each order.
 
+  Essentially, it finds discrepancies between what Amazon charges a customer and what it's told
+  a customer it's charged them
+  """
   def get_order_summary() do
     IO.puts("Downloading transactions")
     {:ok, session} = Wallaby.start_session()
@@ -34,22 +38,25 @@ defmodule AR do
     |> Browser.visit("https://www.amazon.com/cpe/yourpayments/transactions")
 
     {%{} = order_summary, %MapSet{} = links} = transaction_summary(session, %{}, MapSet.new(), Date.from_erl!({2023, 1, 1}))
-    IO.puts("#{length(Map.keys(order_summary))} should equal #{MapSet.size(links)}")
+
+    true = length(Map.keys(order_summary)) == MapSet.size(links)
+
     alternate_order_summary = summarize_orders(session, links)
 
     non_matching_orders = Enum.filter(order_summary, fn {order_number, totals} ->
       alternate_totals = Map.get(alternate_order_summary, order_number)
       alternate_totals[:credits] != totals[:credits] || alternate_totals[:debits] != totals[:debits]
     end)
-    |> IO.inspect(label: "Non matching orders(transactions)")
 
-    # non_matching_order_numbers = Enum.map(non_matching_orders, fn {order_number, _totals} -> order_number end) |> MapSet.new()
-    # non_matching_orders_two = Enum.filter(alternate_order_summary, fn {order_number, _totals} -> MapSet.member?(non_matching_order_numbers, order_number) end)
-    # |> IO.inspect(label: "Non matching orders(order details)")
+    non_matching_order_numbers = Enum.map(non_matching_orders, fn {order_number, _totals} -> order_number end) |> MapSet.new()
+    non_matching_orders_two = Enum.filter(alternate_order_summary, fn {order_number, _totals} -> MapSet.member?(non_matching_order_numbers, order_number) end)
 
 
-    # {non_matching_orders, non_matching_orders_two}
+    {non_matching_orders, non_matching_orders_two}
   end
+
+  # This function goes through every link / order and compiles an orders summary giving the
+  # total debits and credits per order.
 
   defp summarize_orders(session, links) do
     Enum.reduce(links, %{}, fn link, acc ->
@@ -72,22 +79,26 @@ defmodule AR do
     end)
   end
 
-  @doc """
-  session: wallaby browser session that controls the browser
-  order_summary: tracks total credits/debits per order, keyed by order number
-  links: unique set of links to all associated orders
-  through_date: the date at which the function will stop gathering transactions
-  """
-  defp transaction_summary(session, order_summary, links, through_date) do
+  # This function assumes we have navigated to Amazon's transactions page. It grabs all transactions
+  # on the page, its corresponding debit or credit amount, and adds it to the running orders summary.
+  # Then it clicks on the page's "Next Page" button and recursively calls itself until it reaches a page
+  # with transactions that are pase the "through_date".
+
+  # session: wallaby browser session that controls the browser
+  # order_summary: tracks total credits/debits per order, keyed by order number
+  # links: unique set of links to the orders for all transactions crawled
+  # through_date: the date at which the function will stop gathering transactions
+
+  defp transaction_summary(session, orders_summary, links, through_date) do
     dates = Browser.all(session, Query.css(".apx-transaction-date-container"))
     date_str = Element.text(Enum.at(dates, 0))
     date = parse_date(date_str)
     IO.inspect(date, label: "Date")
     case Date.compare(date, through_date) do
-      :lt -> {order_summary, links}
+      :lt -> {orders_summary, links}
       :gt ->
         transactions = Browser.all(session, Query.css(".apx-transactions-line-item-component-container"))
-        {new_order_summary, new_links} = Enum.reduce(transactions, {order_summary, links}, fn transaction, {order_summary_acc, links_acc} ->
+        {new_orders_summary, new_links} = Enum.reduce(transactions, {orders_summary, links}, fn transaction, {orders_summary_acc, links_acc} ->
           query = Query.css("a")
           if Browser.has?(transaction, query) do
             order_link = Browser.find(transaction, query)
@@ -98,7 +109,7 @@ defmodule AR do
             if captures do
               links_acc = MapSet.put(links_acc, href)
               order_number = captures["order_number"]
-              order_summary_acc = Map.put_new(order_summary_acc, order_number, %{credits: 0, debits: 0})
+              orders_summary_acc = Map.put_new(orders_summary_acc, order_number, %{credits: 0, debits: 0})
 
               bolded = Browser.all(transaction, Query.css(".a-text-bold"))
               amount = Enum.at(bolded, 1) |> Element.text()
@@ -109,12 +120,12 @@ defmodule AR do
                 IO.puts("#{order_number} #{amount}")
               end
 
-              {update_in(order_summary_acc, [order_number, type], &(&1 + dollar_amount)), links_acc}
+              {update_in(orders_summary_acc, [order_number, type], &(&1 + dollar_amount)), links_acc}
             else
-              {order_summary_acc, links_acc}
+              {orders_summary_acc, links_acc}
             end
           else
-            {order_summary_acc, links_acc}
+            {orders_summary_acc, links_acc}
           end
         end)
 
@@ -124,7 +135,7 @@ defmodule AR do
 
         my_refute_has(session, Query.css(".apx-transaction-date-container", text: date_str))
 
-        transaction_summary(session, new_order_summary, new_links, through_date)
+        transaction_summary(session, new_orders_summary, new_links, through_date)
     end
   end
 
@@ -143,6 +154,8 @@ defmodule AR do
     "December" => 12
   }
 
+  # Parses date strings of the January 17, 2023 format
+
   defp parse_date(date_str) do
     [month_str, day_str, year_str] = String.split(date_str, " ")
 
@@ -155,7 +168,10 @@ defmodule AR do
 
   @max_wait_time 3_000
 
-  def my_refute_has(session, query, start_time \\ current_time()) do
+  # A modification of Wallaby.Browser.refute_has. This version supports blocking
+  # up through @max_wait_time
+
+  defp my_refute_has(session, query, start_time \\ current_time()) do
     case my_execute_query(session, query) do
       {:ok, %{result: result} = query_result} ->
         case length(result) do
@@ -172,9 +188,12 @@ defmodule AR do
     end
   end
 
-  def my_has?(session, query) do
+  # A modification of Wallaby.Browser.has. This version does not block when the
+  # element is not found immediately
+
+  defp my_has?(session, query) do
     case my_execute_query(session, query) do
-      {:ok, %{result: result} = query_result} ->
+      {:ok, %{result: result}} ->
         case length(result) do
           0 -> false
           _ -> true
@@ -182,7 +201,10 @@ defmodule AR do
     end
   end
 
-  def my_execute_query(%{driver: driver} = parent, query) do
+  # A modification of Wallaby.Browser.execute_query. This version does not block when
+  # the element is not found immediately
+
+  defp my_execute_query(%{driver: driver} = parent, query) do
     try do
       with {:ok, query} <- Query.validate(query),
             compiled_query <- Query.compile(query),
@@ -196,6 +218,8 @@ defmodule AR do
     end
   end
 
+  # Copied from Wallaby.Browser
+
   defp validate_text(query, elements) do
     text = Query.inner_text(query)
 
@@ -205,6 +229,8 @@ defmodule AR do
       {:ok, elements}
     end
   end
+
+  # Copied from Wallaby.Browser
 
   defp matching_text?(%Element{driver: driver} = element, text) do
     case driver.text(element) do
