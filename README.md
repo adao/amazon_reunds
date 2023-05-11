@@ -15,4 +15,4 @@ and it outputs the orders in which the aggregated totals of the two used methods
 
 The first method uses the transaction history as listed on Amazon.
 
-The second method uses the 'Grand Total' and 'Refund' fields on the Order Detail page. 
+The second method uses the 'Grand Total' and 'Refund' fields on the Order Details page. 
