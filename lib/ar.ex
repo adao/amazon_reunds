@@ -37,7 +37,7 @@ defmodule AR do
     |> Browser.click(Query.css("input#signInSubmit"))
     |> Browser.visit("https://www.amazon.com/cpe/yourpayments/transactions")
 
-    {%{} = order_summary, %MapSet{} = links} = transaction_summary(session, %{}, MapSet.new(), Date.from_erl!({2023, 1, 1}))
+    {%{} = order_summary, %MapSet{} = links} = transaction_summary(session, %{}, MapSet.new(), Date.from_erl!({2022, 7, 1}))
 
     true = length(Map.keys(order_summary)) == MapSet.size(links)
 
@@ -45,7 +45,7 @@ defmodule AR do
 
     non_matching_orders = Enum.filter(order_summary, fn {order_number, totals} ->
       alternate_totals = Map.get(alternate_order_summary, order_number)
-      alternate_totals[:credits] != totals[:credits] || alternate_totals[:debits] != totals[:debits]
+      round_float(alternate_totals[:credits]) != round_float(totals[:credits]) || round_float(alternate_totals[:debits]) != round_float(totals[:debits])
     end)
     |> IO.inspect(label: "non-matching orders(transaction aggregate)")
 
@@ -250,5 +250,9 @@ defmodule AR do
 
   defp max_time_exceeded?(start_time) do
     current_time() - start_time > @max_wait_time
+  end
+
+  defp round_float(float) do
+    round(float * 100) / 100
   end
 end
