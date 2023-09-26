@@ -11,8 +11,8 @@ You can clone the repository and run
 AR_USERNAME='email' AR_PASSWORD='password' mix run -e "AR.get_order_summary()"
 ```
 
-and it outputs the orders in which the aggregated totals of the two used methods did not match up.
+which outputs the orders in which the aggregated totals of the two methods do not match up.
 
-The first method uses the transaction history as listed on Amazon.
+The first method uses the transaction history listed on Amazon.
 
-The second method uses the 'Grand Total' and 'Refund' fields on the Order Details page. 
+The second method uses the 'Grand Total' and 'Refund' fields from the Order Details page. 
